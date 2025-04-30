@@ -6,6 +6,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import os
+from datetime import datetime, timedelta
 
 # Database connection and query execution
 def fetch_car_data(db_path, output_csv):
@@ -14,9 +15,33 @@ def fetch_car_data(db_path, output_csv):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # SQL query to fetch car data with NULL or blank descriptions
-        query = "SELECT car_id, make, dealership_id, description FROM cars WHERE description IS NULL OR description = ''"
-        cursor.execute(query)
+        # Calculate the first and last day of the previous month
+        today = datetime.today()
+        first_day_of_current_month = datetime(today.year, today.month, 1)
+        last_day_of_previous_month = first_day_of_current_month - timedelta(days=1)
+        first_day_of_previous_month = datetime(last_day_of_previous_month.year, last_day_of_previous_month.month, 1)
+
+        # SQL query to fetch dealership IDs with delivered contracts from the previous month
+        contract_query = f"""
+        SELECT DISTINCT dealership_id
+        FROM contracts
+        WHERE delivered_date BETWEEN '{first_day_of_previous_month.date()}' AND '{last_day_of_previous_month.date()}'
+        """
+        cursor.execute(contract_query)
+        dealership_ids = [row[0] for row in cursor.fetchall()]
+
+        if not dealership_ids:
+            print("No contracts delivered in the previous month.")
+            return
+
+        # SQL query to fetch car data for the filtered dealership IDs with NULL or blank descriptions
+        placeholders = ', '.join('?' for _ in dealership_ids)  # Create placeholders for the IN clause
+        car_query = f"""
+        SELECT car_id, make, dealership_id, description
+        FROM cars
+        WHERE dealership_id IN ({placeholders}) AND (description IS NULL OR description = '')
+        """
+        cursor.execute(car_query, dealership_ids)
 
         # Fetch all rows
         rows = cursor.fetchall()
